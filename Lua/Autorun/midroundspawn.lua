@@ -1,12 +1,15 @@
--- MidRoundSpawn v1 - spawns new players that have not spawned at least once while the round has already started
+-- MidRoundSpawn v2 - spawns new players that have not spawned at least once while the round has already started
 -- by MassCraxx
 
 if CLIENT then return end
 
 -- CONFIG
-local checkDelay = 10
-local checkTime = -1
+local CheckDelaySeconds = 10
+local SpawnDelaySeconds = 2
+local ForceSpectatorSpawn = false
 
+
+local CheckTime = -1
 local HasBeenSpawned = {}
 local NewPlayers = {}
 
@@ -17,7 +20,6 @@ end
 
 MidRoundSpawn.SpawnClientCharacterOnSub = function(client)
     if not Game.RoundStarted or not client.InGame then return false end 
-    MidRoundSpawn.Log("Spawning new client " .. client.Name)
 
     local spawned = MidRoundSpawn.TryCreateClientCharacter(client)
     HasBeenSpawned[client.SteamID] = spawned
@@ -73,15 +75,19 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
         return false 
     end
 
-    -- spawn character
-    local char = Character.Create(client.CharacterInfo, waypoint.WorldPosition, client.CharacterInfo.Name, 0, true, true);
-    char.TeamID = CharacterTeamType.Team1;
-    crewManager.AddCharacter(char)
+    MidRoundSpawn.Log("Spawning new client " .. client.Name .. " in ".. tostring(SpawnDelaySeconds) .. " seconds")
 
-    client.SetClientCharacter(char);
-    --mcm_client_manager:set(client, char)
-    
-    char.GiveJobItems(waypoint);
+    Timer.Wait(function () 
+        -- spawn character
+        local char = Character.Create(client.CharacterInfo, waypoint.WorldPosition, client.CharacterInfo.Name, 0, true, true);
+        char.TeamID = CharacterTeamType.Team1;
+        crewManager.AddCharacter(char)
+
+        client.SetClientCharacter(char);
+        --mcm_client_manager:set(client, char)
+        
+        char.GiveJobItems(waypoint);
+    end, SpawnDelaySeconds * 1000)
 
     return true
 end
@@ -93,15 +99,18 @@ Hook.Add("roundStart", "MidRoundSpawn.roundStart", function ()
 
     -- Flag all lobby players as spawned
     for key, client in pairs(Client.ClientList) do
-        HasBeenSpawned[client.SteamID] = true
+        if not client.SpectateOnly then
+            HasBeenSpawned[client.SteamID] = true
+        else
+            MidRoundSpawn.Log(client.Name .. " is spectating.")
+        end
     end
 end)
 
 Hook.Add("clientConnected", "MidRoundSpawn.clientConnected", function (newClient)
-    -- ignore if no round started, client is spectator or has been spawned in this round already
-    if not Game.RoundStarted or newClient.Spectating or HasBeenSpawned[newClient.SteamID] then return end
-
     -- client connects, round has started and client has not been considered for spawning yet
+    if not Game.RoundStarted or HasBeenSpawned[newClient.SteamID] then return end
+
     if newClient.InGame then
         -- if client for some reason is already InGame (lobby skip?) spawn
         MidRoundSpawn.SpawnClientCharacterOnSub(newClient)
@@ -109,27 +118,36 @@ Hook.Add("clientConnected", "MidRoundSpawn.clientConnected", function (newClient
         -- else store for later spawn 
         MidRoundSpawn.Log("Adding new player to spawn list: " .. newClient.Name)
         table.insert(NewPlayers, newClient)
+
+        -- inform player about his luck
+        Game.SendDirectChatMessage("", ">> MidRoundSpawn active! <<\nThe round has already started, but you will spawn instantly!", nil, ChatMessageType.Private, newClient)
     end
 end)
 
 Hook.Add("think", "MidRoundSpawn.think", function ()
-    if Game.RoundStarted and checkTime and Timer.GetTime() > checkTime then
-        checkTime = Timer.GetTime() + checkDelay
+    if Game.RoundStarted and CheckTime and Timer.GetTime() > CheckTime then
+        CheckTime = Timer.GetTime() + CheckDelaySeconds
         
         -- check all NewPlayers and if not spawned already and inGame spawn
         for i = #NewPlayers, 1, -1 do
             local newClient = NewPlayers[i]
-            MidRoundSpawn.Log(newClient.Name .. " waiting to be spawned...")
-
-            if newClient and newClient.Connection and newClient.Connection.Status == 1 then
-                if not HasBeenSpawned[newClient.SteamID] and newClient.InGame then
+            
+            -- if client still valid and not spawned yet, no spectator and has an active connection
+            if newClient and not HasBeenSpawned[newClient.SteamID] and (ForceSpectatorSpawn or not newClient.SpectateOnly) and newClient.Connection and newClient.Connection.Status == 1 then
+                -- wait for client to be ingame, then cpasn
+                if newClient.InGame then
                     if MidRoundSpawn.SpawnClientCharacterOnSub(newClient) then
-                        -- if client successfully spawned, remove
                         table.remove(NewPlayers, i)
                     end
+                --else
+                    --MidRoundSpawn.Log(newClient.Name .. " waiting in lobby...")
                 end
             else
-                -- if client disconnected, remove
+                if (not ForceSpectatorSpawn and newClient.SpectateOnly) then
+                    MidRoundSpawn.Log("Removing spectator from spawn list: " .. newClient.Name)
+                else
+                    MidRoundSpawn.Log("Removing invalid player from spawn list: " .. newClient.Name)
+                end
                 table.remove(NewPlayers, i)
             end
         end
