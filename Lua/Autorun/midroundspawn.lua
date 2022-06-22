@@ -1,11 +1,11 @@
--- MidRoundSpawn v2 - spawns new players that have not spawned at least once while the round has already started
+-- MidRoundSpawn v3 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
 
 -- CONFIG
 local CheckDelaySeconds = 10
-local SpawnDelaySeconds = 2
+local SpawnDelaySeconds = 0
 local ForceSpectatorSpawn = false
 
 
@@ -92,6 +92,68 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
     return true
 end
 
+MidRoundSpawn.CreateDialog = function()
+    local c = {}
+
+    local currentPromptID = 0
+    local promptIDToCallback = {}
+
+    local function SendEventMessage(msg, options, id, eventSprite, client)
+        local message = Networking.Start()
+        message.Write(Byte(18)) -- net header
+        message.Write(Byte(0)) -- conversation
+
+        message.Write(UShort(id)) -- ushort identifier 0
+        message.Write(eventSprite) -- event sprite
+        message.Write(UShort(2))
+        message.Write(false) -- continue conversation
+
+        message.Write(Byte(2))
+        message.Write(msg)
+        message.Write(false)
+        message.Write(Byte(#options))
+        for key, value in pairs(options) do
+            message.Write(value)
+        end
+        message.Write(Byte(#options))
+        for i = 0, #options - 1, 1 do
+            message.Write(Byte(i))
+        end
+
+        Networking.Send(message, client.Connection, DeliveryMethod.Reliable)
+    end
+
+
+    Hook.Add("netMessageReceived", "promptResponse", function (msg, header, client)
+        if header == ClientPacketHeader.EVENTMANAGER_RESPONSE then 
+            local id = msg.ReadUInt16()
+            local option = msg.ReadByte()
+
+            if promptIDToCallback[id] ~= nil then
+                promptIDToCallback[id](option, client)
+            end
+        end
+    end)
+
+    c.Prompt = function (message, options, client, callback, eventSprite)
+        currentPromptID = currentPromptID + 1
+
+        promptIDToCallback[currentPromptID] = callback
+        SendEventMessage(message, options, currentPromptID, eventSprite, client)
+    end
+
+    return c
+end
+
+MidRoundSpawn.ShowSpawnDialog = function(client)
+    local dialog = MidRoundSpawn.CreateDialog()
+    dialog.Prompt("Do you want to spawn instantly or wait for the next respawn?\n", {"> Spawn", "> Wait"}, client, function(option, client) 
+        if option == 0 then
+            MidRoundSpawn.SpawnClientCharacterOnSub(client)
+        end
+    end)
+end
+
 Hook.Add("roundStart", "MidRoundSpawn.roundStart", function ()
     -- Reset tables
     HasBeenSpawned = {}
@@ -136,9 +198,8 @@ Hook.Add("think", "MidRoundSpawn.think", function ()
             if newClient and not HasBeenSpawned[newClient.SteamID] and (ForceSpectatorSpawn or not newClient.SpectateOnly) and newClient.Connection and newClient.Connection.Status == 1 then
                 -- wait for client to be ingame, then cpasn
                 if newClient.InGame then
-                    if MidRoundSpawn.SpawnClientCharacterOnSub(newClient) then
-                        table.remove(NewPlayers, i)
-                    end
+                    MidRoundSpawn.ShowSpawnDialog(newClient)
+                    table.remove(NewPlayers, i)
                 --else
                     --MidRoundSpawn.Log(newClient.Name .. " waiting in lobby...")
                 end
@@ -159,7 +220,8 @@ Hook.Add("chatMessage", "MidRoundSpawn.ChatMessage", function (message, client)
     if not client.HasPermission(ClientPermissions.ConsoleCommands) then return end
 
     if message == "!midroundspawn" then
-        MidRoundSpawn.SpawnClientCharacterOnSub(client)
+        --MidRoundSpawn.SpawnClientCharacterOnSub(client)
+        MidRoundSpawn.ShowSpawnDialog(client)
         return true
     end
 end)
