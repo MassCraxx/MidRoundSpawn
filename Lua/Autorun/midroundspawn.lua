@@ -1,4 +1,4 @@
--- MidRoundSpawn v3 - offers newly joined players the option to spawn mid-round
+-- MidRoundSpawn v4 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
@@ -182,7 +182,7 @@ Hook.Add("clientConnected", "MidRoundSpawn.clientConnected", function (newClient
         table.insert(NewPlayers, newClient)
 
         -- inform player about his luck
-        Game.SendDirectChatMessage("", ">> MidRoundSpawn active! <<\nThe round has already started, but you will spawn instantly!", nil, ChatMessageType.Private, newClient)
+        Game.SendDirectChatMessage("", ">> MidRoundSpawn active! <<\nThe round has already started, but you can spawn instantly!", nil, ChatMessageType.Private, newClient)
     end
 end)
 
@@ -217,11 +217,13 @@ end)
 
 -- Commands hook
 Hook.Add("chatMessage", "MidRoundSpawn.ChatMessage", function (message, client)
-    if not client.HasPermission(ClientPermissions.ConsoleCommands) then return end
 
     if message == "!midroundspawn" then
-        --MidRoundSpawn.SpawnClientCharacterOnSub(client)
-        MidRoundSpawn.ShowSpawnDialog(client)
+        if not HasBeenSpawned[client.SteamID] or client.HasPermission(ClientPermissions.All) then
+            MidRoundSpawn.ShowSpawnDialog(client)
+        else
+            Game.SendDirectChatMessage("", "You spawned already.", nil, ChatMessageType.Error, client)
+        end
         return true
     end
 end)
