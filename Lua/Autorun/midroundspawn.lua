@@ -1,4 +1,4 @@
--- MidRoundSpawn v4 - offers newly joined players the option to spawn mid-round
+-- MidRoundSpawn v5 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
@@ -6,8 +6,8 @@ if CLIENT then return end
 -- CONFIG
 local CheckDelaySeconds = 10
 local SpawnDelaySeconds = 0
-local ForceSpectatorSpawn = false
-
+local GiveSpectatorsSpawnOption = false   -- if true, spectating players will be given the option to mid-round spawn
+local PreventMultiCaptain = true          -- if true, will give securityofficer job to players trying to spawn as additional captain
 
 local CheckTime = -1
 local HasBeenSpawned = {}
@@ -27,6 +27,20 @@ MidRoundSpawn.SpawnClientCharacterOnSub = function(client)
     return spawned
 end
 
+MidRoundSpawn.CrewHasJob = function(job)
+    if #Client.ClientList > 1 then
+        for key, value in pairs(Client.ClientList) do
+            if value.Character and value.Character.HasJob(job) then return true end
+        end
+    end
+    return false
+end
+
+MidRoundSpawn.GetJobVariant = function(jobId)
+    local prefab = JobPrefab.Get(jobId)
+    return JobVariant.__new(prefab, 0)
+end
+
 -- TryCreateClientCharacter inspied by Oiltanker
 MidRoundSpawn.TryCreateClientCharacter = function(client)
     local session = Game.GameSession
@@ -36,10 +50,22 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
     if client.CharacterInfo == nil then client.CharacterInfo = CharacterInfo.__new('human', client.Name) end
 
     local jobPreference = client.JobPreferences[1]
-    if jobPreference ~= nil then
-        client.AssignedJob = jobPreference
-        client.CharacterInfo.Job = Job.__new(jobPreference.Prefab, 0, jobPreference.Variant);
+
+    if jobPreference == nil then
+        -- if no jobPreference, set assistant
+        jobPreference = MidRoundSpawn.GetJobVariant("assistant")
+
+    elseif PreventMultiCaptain and jobPreference.Prefab.Identifier == "captain" then
+        -- if crew has a captain, spawn as security
+        if MidRoundSpawn.CrewHasJob("captain") then
+            MidRoundSpawn.Log(client.Name .. " tried to mid-round spawn as second captain - assigning security instead.")
+            -- set jobPreference = security
+            jobPreference = MidRoundSpawn.GetJobVariant("securityofficer")
+        end
     end
+
+    client.AssignedJob = jobPreference
+    client.CharacterInfo.Job = Job.__new(jobPreference.Prefab, 0, jobPreference.Variant);
 
     crewManager.AddCharacterInfo(client.CharacterInfo)
 
@@ -66,7 +92,7 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
 
     -- none found, go random
     if waypoint == nil then 
-        MidRoundSpawn.Log("WARN: No valid job waypoint found for " .. tostring(client.CharacterInfo.Job.Prefab.Identifier) .. " - using random")
+        MidRoundSpawn.Log("WARN: No valid job waypoint found for " .. client.CharacterInfo.Job.Name.Value .. " - using random")
         waypoint = WayPoint.GetRandom(SpawnType.Human, nil, Submarine.MainSub)
     end
 
@@ -75,7 +101,7 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
         return false 
     end
 
-    MidRoundSpawn.Log("Spawning new client " .. client.Name .. " in ".. tostring(SpawnDelaySeconds) .. " seconds")
+    MidRoundSpawn.Log("Spawning " .. client.Name .. " as " .. client.CharacterInfo.Job.Name.Value)
 
     Timer.Wait(function () 
         -- spawn character
@@ -87,6 +113,7 @@ MidRoundSpawn.TryCreateClientCharacter = function(client)
         --mcm_client_manager:set(client, char)
         
         char.GiveJobItems(waypoint);
+        char.LoadTalents()
     end, SpawnDelaySeconds * 1000)
 
     return true
@@ -195,7 +222,7 @@ Hook.Add("think", "MidRoundSpawn.think", function ()
             local newClient = NewPlayers[i]
             
             -- if client still valid and not spawned yet, no spectator and has an active connection
-            if newClient and not HasBeenSpawned[newClient.SteamID] and (ForceSpectatorSpawn or not newClient.SpectateOnly) and newClient.Connection and newClient.Connection.Status == 1 then
+            if newClient and not HasBeenSpawned[newClient.SteamID] and (GiveSpectatorsSpawnOption or not newClient.SpectateOnly) and newClient.Connection and newClient.Connection.Status == 1 then
                 -- wait for client to be ingame, then cpasn
                 if newClient.InGame then
                     MidRoundSpawn.ShowSpawnDialog(newClient)
@@ -204,7 +231,7 @@ Hook.Add("think", "MidRoundSpawn.think", function ()
                     --MidRoundSpawn.Log(newClient.Name .. " waiting in lobby...")
                 end
             else
-                if (not ForceSpectatorSpawn and newClient.SpectateOnly) then
+                if (not GiveSpectatorsSpawnOption and newClient.SpectateOnly) then
                     MidRoundSpawn.Log("Removing spectator from spawn list: " .. newClient.Name)
                 else
                     MidRoundSpawn.Log("Removing invalid player from spawn list: " .. newClient.Name)
