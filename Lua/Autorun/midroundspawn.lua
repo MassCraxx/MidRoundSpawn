@@ -1,4 +1,4 @@
--- MidRoundSpawn v5 - offers newly joined players the option to spawn mid-round
+-- MidRoundSpawn v6 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
@@ -172,11 +172,19 @@ MidRoundSpawn.CreateDialog = function()
     return c
 end
 
-MidRoundSpawn.ShowSpawnDialog = function(client)
+MidRoundSpawn.ShowSpawnDialog = function(client, force)
+    if not force and client.Character and not client.Character.IsDead then
+        MidRoundSpawn.Log(client.Name .. " was prevented to midroundspawn due to having an alive character.")
+        return
+    end
     local dialog = MidRoundSpawn.CreateDialog()
     dialog.Prompt("Do you want to spawn instantly or wait for the next respawn?\n", {"> Spawn", "> Wait"}, client, function(option, client) 
         if option == 0 then
-            MidRoundSpawn.SpawnClientCharacterOnSub(client)
+            if force or not client.Character or client.Character.IsDead then
+                MidRoundSpawn.SpawnClientCharacterOnSub(client)
+            else
+                MidRoundSpawn.Log(client.Name .. " attempted midroundspawn while having alive character.")
+            end
         end
     end)
 end
@@ -246,10 +254,14 @@ end)
 Hook.Add("chatMessage", "MidRoundSpawn.ChatMessage", function (message, client)
 
     if message == "!midroundspawn" then
-        if not HasBeenSpawned[client.SteamID] or client.HasPermission(ClientPermissions.All) then
-            MidRoundSpawn.ShowSpawnDialog(client)
+        if client.InGame then
+            if (not HasBeenSpawned[client.SteamID] or client.HasPermission(ClientPermissions.ConsoleCommands)) and (not client.Character or client.Character.IsDead) then
+                MidRoundSpawn.ShowSpawnDialog(client)
+            else
+                Game.SendDirectChatMessage("", "You spawned already.", nil, ChatMessageType.Error, client)
+            end
         else
-            Game.SendDirectChatMessage("", "You spawned already.", nil, ChatMessageType.Error, client)
+            Game.SendDirectChatMessage("", "You are not in-game.", nil, ChatMessageType.Error, client)
         end
         return true
     end
