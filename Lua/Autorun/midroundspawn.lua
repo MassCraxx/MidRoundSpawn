@@ -1,4 +1,4 @@
--- MidRoundSpawn v7 - offers newly joined players the option to spawn mid-round
+-- MidRoundSpawn v8 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
@@ -150,7 +150,7 @@ MidRoundSpawn.CreateDialog = function()
     end
 
 
-    Hook.Add("netMessageReceived", "promptResponse", function (msg, header, client)
+    Hook.Add("netMessageReceived", "MidRoundSpawn.promptResponse", function (msg, header, client)
         if header == ClientPacketHeader.EVENTMANAGER_RESPONSE then 
             local id = msg.ReadUInt16()
             local option = msg.ReadByte()
