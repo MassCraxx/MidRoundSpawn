@@ -1,4 +1,4 @@
--- MidRoundSpawn v6 - offers newly joined players the option to spawn mid-round
+-- MidRoundSpawn v7 - offers newly joined players the option to spawn mid-round
 -- by MassCraxx
 
 if CLIENT then return end
@@ -122,7 +122,6 @@ end
 MidRoundSpawn.CreateDialog = function()
     local c = {}
 
-    local currentPromptID = 0
     local promptIDToCallback = {}
 
     local function SendEventMessage(msg, options, id, eventSprite, client)
@@ -159,11 +158,12 @@ MidRoundSpawn.CreateDialog = function()
             if promptIDToCallback[id] ~= nil then
                 promptIDToCallback[id](option, client)
             end
+            msg.BitPosition = msg.BitPosition - (8 * 3) -- rewind 3 bytes from the message, so it can be read again
         end
     end)
 
     c.Prompt = function (message, options, client, callback, eventSprite)
-        currentPromptID = currentPromptID + 1
+        local currentPromptID = math.floor(math.random(0,65535))
 
         promptIDToCallback[currentPromptID] = callback
         SendEventMessage(message, options, currentPromptID, eventSprite, client)
